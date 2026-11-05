@@ -1,0 +1,13 @@
+{
+	"autodeskProduct":	"Fusion",
+	"type":	"addin",
+	"author":	"Dariel Espinoza Lopez",
+	"description":	{
+		"":	"Logs Fusion 360 hours and activities."
+	},
+	"version":	"0.0.0",
+	"runOnStartup":	true,
+	"supportedOS":	"windows|mac",
+	"editEnabled":	false,
+	"iconFilename":	"AddInIcon.svg"
+}

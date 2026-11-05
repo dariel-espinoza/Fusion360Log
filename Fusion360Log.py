@@ -1,11 +1,19 @@
-# Assuming you have not changed the general structure of the template no modification is needed in this file.
+# Author-Dariel Espinoza Lopez
+# Description-Main entry point for add-in. Required for all add-ins and is used to start and stop the add-in.
+
 from . import commands
 from .lib import fusionAddInUtils as futil
-
+import adsk.core
 
 def run(context):
     try:
-        # This will run the start function in each of your commands as defined in commands/__init__.py
+        # Display a message when the add-in is manually run.
+        if not context['IsApplicationStartup']:
+            app = adsk.core.Application.get()
+            ui = app.userInterface
+            ui.messageBox('The Fusion 360 Logger add-in has been loaded.')
+
+       # Run the stop function for each command defined in commands/__init__.py
         commands.start()
 
     except:
@@ -17,7 +25,7 @@ def stop(context):
         # Remove all of the event handlers your app has created
         futil.clear_handlers()
 
-        # This will run the start function in each of your commands as defined in commands/__init__.py
+        # Run the stop function for each command defined in commands/__init__.py
         commands.stop()
 
     except:

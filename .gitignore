@@ -29,7 +29,11 @@ MANIFEST
 # PyInstaller
 #   Usually these files are written by a python script from a template
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
+#
+#   Specifically for this project, however, we want to keep the manifest files in 
+#   the repository since they are important for the application's functionality, 
+#   so we will not ignore them.
+# *.manifest
 *.spec
 
 # Installer logs
@@ -202,6 +206,11 @@ cython_debug/
 #   and can be added to the global gitignore or merged into this file. However, if you prefer, you
 #   could uncomment the following to ignore the entire vscode folder
 # .vscode/
+#   Usually, settings.json would be included; however, for this project, we want to ignore it 
+#   since it contains user-specific settings that are not shared between users. Insetad the 
+#   settings.json.template file is included for users to create their own settings.json file.
+.vscode/settings.json
+!.vscode/settings.json.template
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
