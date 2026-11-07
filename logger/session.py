@@ -118,10 +118,8 @@ class Session:
         if self.status == SessionStatus.ENDED:
             raise SessionException("Session already ended.", self.status)
 
-        if self.status == SessionStatus.PAUSED:
-            self.resume()
-        
         self.end_time = time.perf_counter()
+
 
     def to_dict(self) -> dict:
         return {
