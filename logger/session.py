@@ -102,7 +102,7 @@ class Session:
         }
 
         if split_type not in split_types:
-            raise SessionException(f"Invalid split type. Value split types: {", ".join(split_types)}.", self.status)
+            raise SessionException(f"Invalid split type. Value split types: {', '.join(split_types)}.", self.status)
 
         current_elapsed = split_types.get(split_type)
         self.splits.append({
