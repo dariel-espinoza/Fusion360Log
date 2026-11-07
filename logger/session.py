@@ -101,7 +101,10 @@ class Session:
             "elapsed": self.elapsed_time
         }
 
-        current_elapsed = split_types[split_type]
+        if split_type not in split_types:
+            raise SessionException(f"Invalid split type. Value split types: {", ".join(split_types)}.", self.status)
+
+        current_elapsed = split_types.get(split_type)
         self.splits.append({
             "label": label or f"Split {len(self.splits) + 1}",
             "elapsed_time": current_elapsed,
