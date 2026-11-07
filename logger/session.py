@@ -47,9 +47,9 @@ class Session:
     def status(self) -> SessionStatus:
         if self.start_time is None:
             return SessionStatus.NOT_STARTED
-        if self._pause_start is not None:
-            return SessionStatus.PAUSED
         if self.end_time is None:
+            if self._pause_start is not None:
+                return SessionStatus.PAUSED
             return SessionStatus.RUNNING
         return SessionStatus.ENDED
 
