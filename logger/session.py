@@ -28,7 +28,7 @@ class Session:
 
 
     def __str__(self):
-        return f"Status: {self.status}\nTime Elapsed: {self.elapsed_time}"
+        return f"Status: {self.status}\nTime Elapsed: {self.total_time}"
 
     def __repr__(self):
         return f"{self.__class__.__name__}(precision={self.precision!r})"
@@ -54,7 +54,7 @@ class Session:
         return SessionStatus.ENDED
 
     @property
-    def elapsed_time(self) -> float:
+    def total_time(self) -> float:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
         
@@ -98,7 +98,7 @@ class Session:
 
         split_types = {
             "active": self.active_time,
-            "elapsed": self.elapsed_time
+            "elapsed": self.total_time
         }
 
         if split_type not in split_types:
@@ -107,7 +107,7 @@ class Session:
         current_elapsed = split_types.get(split_type)
         self.splits.append({
             "label": label or f"Split {len(self.splits) + 1}",
-            "elapsed_time": current_elapsed,
+            "total_time": current_elapsed,
             "timestamp": time.time()
         })
         return current_elapsed
@@ -124,7 +124,7 @@ class Session:
     def to_dict(self) -> dict:
         return {
             "status": self.status.name,
-            "total_elapsed_time": self.elapsed_time,
+            "total_total_time": self.total_time,
             "total_active_time": self.active_time,
             "splits": self.splits,
             "has_splits": len(self.splits) > 0
