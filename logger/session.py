@@ -66,12 +66,12 @@ class Session:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
         
-        if self.status == SessionStatus.ENDED:
-            current = self.end_time
-        elif self.status == SessionStatus.PAUSED:
-            current = self._pause_start
-        else:
+        if self.status == SessionStatus.RUNNING:
             current = time.perf_counter()
+        elif self.status == SessionStatus.ENDED:
+            current = self.end_time
+        else:
+            current = self._pause_start
 
         active_time = current - self.start_time - self._total_pause_time
         return round(max(0.0, active_time), self.precision)
@@ -119,6 +119,9 @@ class Session:
             raise SessionException("Session already ended.", self.status)
 
         self.end_time = time.perf_counter()
+
+        if self._pause_start != None:
+            self._total_pause_time += self.end_time - self._pause_start
 
 
     def to_dict(self) -> dict:
