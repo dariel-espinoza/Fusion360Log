@@ -18,14 +18,13 @@ class Session:
     """ Generic, testable base class for tracking time and states. """
 
     def __init__(self, precision: int = 2) -> None:
-        self.precision = precision
         self.start_time: float | None = None
         self.end_time: float | None = None
-
-        self.splits: list[dict] = []
-        self._total_pause_time: float = 0.0
         self._pause_start: float | None = None
+        self._total_pause_time: float = 0.0
+        self.splits: list[dict] = []
 
+        self.precision = precision
 
     def __str__(self):
         return f"Status: {self.status}\nTime Elapsed: {self.total_time}"
@@ -122,7 +121,6 @@ class Session:
 
         if self._pause_start != None:
             self._total_pause_time += self.end_time - self._pause_start
-
 
     def to_dict(self) -> dict:
         return {
