@@ -6,8 +6,8 @@
 		"":	"Logs Fusion 360 hours and activities."
 	},
 	"version":	"0.0.0",
-	"runOnStartup":	true,
+	"runOnStartup":	false,
 	"supportedOS":	"windows|mac",
-	"editEnabled":	false,
+	"editEnabled":	true,
 	"iconFilename":	"AddInIcon.svg"
 }
