@@ -21,16 +21,11 @@ class Session:
         self.start_time: float | None = None
         self.end_time: float | None = None
         self._pause_start: float | None = None
-        self._total_pause_time: float = 0.0
+
         self.splits: list[dict] = []
+        self.pauses: list[dict] = []
 
         self.precision = precision
-
-    def __str__(self):
-        return f"Status: {self.status}\nTime Elapsed: {self.total_time}"
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}(precision={self.precision!r})"
     
     @property
     def precision(self) -> int:
@@ -61,6 +56,14 @@ class Session:
         return round(max(0.0, current - self.start_time), self.precision)
 
     @property
+    def total_time_paused(self) -> float:
+        if self.status == SessionStatus.NOT_STARTED:
+            return 0.0
+
+        total_time_paused = sum([pause["duration"] for pause in self.pauses])
+        return total_time_paused
+
+    @property
     def active_time(self) -> float:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
@@ -72,7 +75,7 @@ class Session:
         else:
             current = self._pause_start
 
-        active_time = current - self.start_time - self._total_pause_time
+        active_time = current - self.start_time - self.total_time_paused
         return round(max(0.0, active_time), self.precision)
 
     def start(self) -> None:
@@ -80,16 +83,32 @@ class Session:
             raise SessionException("Session was already started.", self.status)
         self.start_time = time.perf_counter()
 
-    def pause(self) -> None:
+    def pause(self, reason: str = "manual") -> None:
         if self.status != SessionStatus.RUNNING:
             raise SessionException("Can only pause a running session.", self.status)
         self._pause_start = time.perf_counter()
 
+        self.pauses.append({
+            "reason": reason,
+            "start_wall_time": time.time(),
+            "start_perf": self._pause_start,
+            "end_perf": None,
+            "duration": 0.0
+        })
+
     def resume(self) -> None:
         if self.status != SessionStatus.PAUSED:
             raise SessionException("Can only resume a paused session.", self.status)
-        self._total_pause_time += time.perf_counter() - self._pause_start
+        
+        now = time.perf_counter()
+
+        last_pause = self.pauses[-1]
+        last_pause["end_perf"] = now
+        last_pause["duration"] = now -self._pause_start
+        
         self._pause_start = None
+
+
 
     def split(self, label: str = "", split_type: str = "active") -> float:
         if self.status not in (SessionStatus.RUNNING, SessionStatus.PAUSED):
@@ -117,10 +136,17 @@ class Session:
         if self.status == SessionStatus.ENDED:
             raise SessionException("Session already ended.", self.status)
 
-        self.end_time = time.perf_counter()
+        now = time.perf_counter()
 
         if self._pause_start != None:
-            self._total_pause_time += self.end_time - self._pause_start
+            last_pause = self.pauses[-1]
+            last_pause["end_perf"] = now
+            last_pause["duration"] = now - self._pause_start
+            self._pause_start = None
+
+        self.end_time = now
+
+
 
     def to_dict(self) -> dict:
         return {
@@ -131,4 +157,8 @@ class Session:
             "has_splits": len(self.splits) > 0
         }
 
-    
+    def __str__(self):
+        return f"Status: {self.status}\nTime Elapsed: {self.total_time}"
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(precision={self.precision!r})"
