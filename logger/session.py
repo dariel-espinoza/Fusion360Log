@@ -18,6 +18,8 @@ class Session:
     """ Generic, testable base class for tracking time and states. """
 
     def __init__(self, precision: int = 2) -> None:
+        self.precision = precision
+        
         self.start_time: float | None = None
         self.end_time: float | None = None
         self._pause_start: float | None = None
@@ -25,7 +27,6 @@ class Session:
         self.splits: list[dict] = []
         self.pauses: list[dict] = []
 
-        self.precision = precision
     
     @property
     def precision(self) -> int:
@@ -33,8 +34,10 @@ class Session:
 
     @precision.setter
     def precision(self, value: int) -> None:
+        current_status = getattr(self, "status", SessionStatus.NOT_STARTED)
         if not 0 <= value <= 9:
-            raise SessionException("Value must be between 0 and 9", self.status)
+            raise SessionException("Value must be between 0 and 9", current_status)
+        
         self._precision = value
 
     @property
