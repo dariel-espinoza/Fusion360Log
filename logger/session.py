@@ -18,15 +18,17 @@ class Session:
     """ Generic, testable base class for tracking time and states. """
 
     def __init__(self, precision: int = 2) -> None:
-        self.precision = precision
 
         self.start_time: float | None = None
         self.end_time: float | None = None
         self._pause_start: float | None = None
+        self._idle_start: float | None = None
 
         self.splits: list[dict] = []
         self.pauses: list[dict] = []
+        self.idles: list[dict] = []
 
+        self.precision = precision
     
     @property
     def precision(self) -> int:
@@ -47,6 +49,8 @@ class Session:
         if self.end_time is None:
             if self._pause_start is not None:
                 return SessionStatus.PAUSED
+            if self._idle_start is not None:
+                return SessionStatus.IDLE
             return SessionStatus.RUNNING
         return SessionStatus.ENDED
 
@@ -72,6 +76,19 @@ class Session:
         return round(total_time_paused, self.precision)
 
     @property
+    def total_time_idle(self) -> float:
+        if self.status == SessionStatus.NOT_STARTED:
+            return 0.0
+
+        total_time_idle = sum([idle["duration"] for idle in self.idles])
+        
+        if self._idle_start is not None:
+            current_idle_time = time.perf_counter() - self._idle_start
+            total_time_idle += current_idle_time
+
+        return round(total_time_idle, self.precision)
+
+    @property
     def total_time_active(self) -> float:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
@@ -81,9 +98,11 @@ class Session:
         elif self.status == SessionStatus.ENDED:
             current = self.end_time
         else:
-            current = self._pause_start
+            current = self._pause_start or self._idle_start
 
-        total_time_active = current - self.start_time - self.total_time_paused
+        non_active_time = self.total_time_paused + self.total_time_idle
+        current_total_time = current - self.start_time
+        total_time_active = current_total_time - non_active_time
         return round(max(0.0, total_time_active), self.precision)
 
     def start(self) -> None:
@@ -104,22 +123,41 @@ class Session:
             "duration": 0.0
         })
 
+    def idle(self) -> None:
+        if self.status != SessionStatus.RUNNING:
+            raise SessionException("Can only declare idle on a running session.", self.status)
+        self._idle_start = time.perf_counter()
+
+        self.idles.append({
+            "start_wall_time": time.time(),
+            "start_perf": self._idle_start,
+            "end_perf": None,
+            "duration": 0.0
+        })
+
     def resume(self) -> None:
-        if self.status != SessionStatus.PAUSED:
-            raise SessionException("Can only resume a paused session.", self.status)
+        if self.status not in (SessionStatus.PAUSED, SessionStatus.IDLE):
+            raise SessionException("Can only resume a paused or idle session.", self.status)
         
         now = time.perf_counter()
 
-        last_pause = self.pauses[-1]
-        last_pause["end_perf"] = now
-        last_pause["duration"] = now -self._pause_start
-        
-        self._pause_start = None
+        if self.status == SessionStatus.PAUSED:
+            last_pause = self.pauses[-1]
+            last_pause["end_perf"] = now
+            last_pause["duration"] = now - self._pause_start
+            
+            self._pause_start = None
+        else:
+            last_idle = self.idles[-1]
+            last_idle["end_perf"] = now
+            last_idle["duration"] = now - self._idle_start
+            
+            self._idle_start = None
 
 
 
     def split(self, label: str = "", split_type: str = "active") -> float:
-        if self.status not in (SessionStatus.RUNNING, SessionStatus.PAUSED):
+        if self.status not in (SessionStatus.RUNNING, SessionStatus.PAUSED, SessionStatus.IDLE):
             raise SessionException("Cannot split on an inactive session.", self.status)
 
         split_types = {
@@ -134,7 +172,8 @@ class Session:
         self.splits.append({
             "label": label or f"Split {len(self.splits) + 1}",
             "total_time": current_elapsed,
-            "timestamp": time.time()
+            "timestamp": time.time(),
+            "time_perf": time.perf_counter()
         })
         return current_elapsed
 
@@ -151,6 +190,11 @@ class Session:
             last_pause["end_perf"] = now
             last_pause["duration"] = now - self._pause_start
             self._pause_start = None
+        elif self._idle_start != None:
+            last_idle = self.idles[-1]
+            last_idle["end_perf"] = now
+            last_idle["duration"] = now - self._idle_start
+            self._idle_start = None
 
         self.end_time = now
 
