@@ -19,7 +19,7 @@ class Session:
 
     def __init__(self, precision: int = 2) -> None:
         self.precision = precision
-        
+
         self.start_time: float | None = None
         self.end_time: float | None = None
         self._pause_start: float | None = None
@@ -64,7 +64,12 @@ class Session:
             return 0.0
 
         total_time_paused = sum([pause["duration"] for pause in self.pauses])
-        return total_time_paused
+
+        if self._pause_start is not None:
+            current_pause_time = time.perf_counter() - self._pause_start
+            total_time_paused += current_pause_time
+
+        return round(total_time_paused, self.precision)
 
     @property
     def active_time(self) -> float:
