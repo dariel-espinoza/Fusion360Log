@@ -72,7 +72,7 @@ class Session:
         return round(total_time_paused, self.precision)
 
     @property
-    def active_time(self) -> float:
+    def total_time_active(self) -> float:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
         
@@ -83,8 +83,8 @@ class Session:
         else:
             current = self._pause_start
 
-        active_time = current - self.start_time - self.total_time_paused
-        return round(max(0.0, active_time), self.precision)
+        total_time_active = current - self.start_time - self.total_time_paused
+        return round(max(0.0, total_time_active), self.precision)
 
     def start(self) -> None:
         if self.status != SessionStatus.NOT_STARTED:
@@ -123,7 +123,7 @@ class Session:
             raise SessionException("Cannot split on an inactive session.", self.status)
 
         split_types = {
-            "active": self.active_time,
+            "active": self.total_time_active,
             "elapsed": self.total_time
         }
 
@@ -160,7 +160,7 @@ class Session:
         return {
             "status": self.status.name,
             "total_total_time": self.total_time,
-            "total_active_time": self.active_time,
+            "total_total_time_active": self.total_time_active,
             "splits": self.splits,
             "has_splits": len(self.splits) > 0
         }
