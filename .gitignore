@@ -206,11 +206,7 @@ cython_debug/
 #   and can be added to the global gitignore or merged into this file. However, if you prefer, you
 #   could uncomment the following to ignore the entire vscode folder
 # .vscode/
-#   Usually, settings.json would be included; however, for this project, we want to ignore it 
-#   since it contains user-specific settings that are not shared between users. Insetad the 
-#   settings.json.template file is included for users to create their own settings.json file.
-.vscode/settings.json
-!.vscode/settings.json.template
+
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
@@ -227,3 +223,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ----------------------------------------------------------------------------------------------- # 
+# Fusion360Log Folder Specifics
+# The issue of having a Fusion360 add-in on github is that there are many files that, although 
+# requently ignored for most occasions, are necessary to include, since they will not be 
+# generated automatically as they usually are. This section helps make sure that specifc files
+# within the Fusion360Log folder are included, or excluded, as needed
+
+# Visual Studio Code
+Fusion360Log/.vscode/settings.json
+!Fusion360Log/.vscode/settings.json.template
+
+# Lib Files
+!Fusion360Log/lib
+
