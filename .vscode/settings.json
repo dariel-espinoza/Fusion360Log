@@ -1,6 +1,7 @@
 {
     "conventionalCommits.scopes": [
         "repo",
-        "gitignore"
+        "gitignore",
+        "tests"
     ]
 }
