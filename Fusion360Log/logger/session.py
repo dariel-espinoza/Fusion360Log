@@ -1,5 +1,6 @@
-import time
+from collections.abc import Callable
 from enum import Enum, auto
+import time
 
 class SessionException(Exception):
     def __init__(self, message, status) -> None:
@@ -17,7 +18,7 @@ class SessionStatus(Enum):
 class Session:
     """ Generic, testable base class for tracking time and states. """
 
-    def __init__(self, precision: int = 2) -> None:
+    def __init__(self, precision: int = 2, clock: Callable[[], float] = time.perf_counter) -> None:
 
         self.start_time: float | None = None
         self.end_time: float | None = None
@@ -59,7 +60,7 @@ class Session:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
         
-        current = self.end_time or time.perf_counter()
+        current = self.end_time or self.clock()
         return round(max(0.0, current - self.start_time), self.precision)
 
     @property
@@ -70,7 +71,7 @@ class Session:
         total_time_paused = sum([pause["duration"] for pause in self.pauses])
 
         if self._pause_start is not None:
-            current_pause_time = time.perf_counter() - self._pause_start
+            current_pause_time = self.clock() - self._pause_start
             total_time_paused += current_pause_time
 
         return round(total_time_paused, self.precision)
@@ -83,7 +84,7 @@ class Session:
         total_time_idle = sum([idle["duration"] for idle in self.idles])
         
         if self._idle_start is not None:
-            current_idle_time = time.perf_counter() - self._idle_start
+            current_idle_time = self.clock() - self._idle_start
             total_time_idle += current_idle_time
 
         return round(total_time_idle, self.precision)
@@ -94,7 +95,7 @@ class Session:
             return 0.0
         
         if self.status == SessionStatus.RUNNING:
-            current = time.perf_counter()
+            current = self.clock()
         elif self.status == SessionStatus.ENDED:
             current = self.end_time
         else:
@@ -108,12 +109,12 @@ class Session:
     def start(self) -> None:
         if self.status != SessionStatus.NOT_STARTED:
             raise SessionException("Session was already started.", self.status)
-        self.start_time = time.perf_counter()
+        self.start_time = self.clock()
 
     def pause(self, reason: str = "manual") -> None:
         if self.status != SessionStatus.RUNNING:
             raise SessionException("Can only pause a running session.", self.status)
-        self._pause_start = time.perf_counter()
+        self._pause_start = self.clock()
 
         self.pauses.append({
             "reason": reason,
@@ -126,7 +127,7 @@ class Session:
     def idle(self) -> None:
         if self.status != SessionStatus.RUNNING:
             raise SessionException("Can only declare idle on a running session.", self.status)
-        self._idle_start = time.perf_counter()
+        self._idle_start = self.clock()
 
         self.idles.append({
             "start_wall_time": time.time(),
@@ -139,7 +140,7 @@ class Session:
         if self.status not in (SessionStatus.PAUSED, SessionStatus.IDLE):
             raise SessionException("Can only resume a paused or idle session.", self.status)
         
-        now = time.perf_counter()
+        now = self.clock()
 
         if self.status == SessionStatus.PAUSED:
             last_pause = self.pauses[-1]
@@ -173,7 +174,7 @@ class Session:
             "label": label or f"Split {len(self.splits) + 1}",
             "total_time": current_elapsed,
             "timestamp": time.time(),
-            "time_perf": time.perf_counter()
+            "time_perf": self.clock()
         })
         return current_elapsed
 
@@ -183,7 +184,7 @@ class Session:
         if self.status == SessionStatus.ENDED:
             raise SessionException("Session already ended.", self.status)
 
-        now = time.perf_counter()
+        now = self.clock()
 
         if self._pause_start != None:
             last_pause = self.pauses[-1]

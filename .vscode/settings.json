@@ -2,6 +2,7 @@
     "conventionalCommits.scopes": [
         "repo",
         "gitignore",
-        "tests"
+        "tests",
+        "session"
     ]
 }
