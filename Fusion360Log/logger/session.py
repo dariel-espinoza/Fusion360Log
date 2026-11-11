@@ -30,6 +30,12 @@ class Session:
         self.splits: list[dict] = []
         self.pauses: list[dict] = []
         self.idles: list[dict] = []
+
+    def __str__(self):
+        return f"Status: {self.status}\nTime Elapsed: {self.total_time}"
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(precision={self.precision!r})"
     
     @property
     def precision(self) -> int:
@@ -191,8 +197,6 @@ class Session:
 
         self.end_time = now
 
-
-
     def to_dict(self) -> dict:
         return {
             "status": self.status.name,
@@ -201,9 +205,3 @@ class Session:
             "splits": self.splits,
             "has_splits": len(self.splits) > 0
         }
-
-    def __str__(self):
-        return f"Status: {self.status}\nTime Elapsed: {self.total_time}"
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}(precision={self.precision!r})"
