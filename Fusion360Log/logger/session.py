@@ -20,6 +20,8 @@ class Session:
 
     def __init__(self, precision: int = 2, clock: Callable[[], float] = time.perf_counter) -> None:
 
+        self._precision = precision
+        
         self.start_time: float | None = None
         self.end_time: float | None = None
         self._pause_start: float | None = None
@@ -28,20 +30,10 @@ class Session:
         self.splits: list[dict] = []
         self.pauses: list[dict] = []
         self.idles: list[dict] = []
-
-        self.precision = precision
     
     @property
     def precision(self) -> int:
         return self._precision
-
-    @precision.setter
-    def precision(self, value: int) -> None:
-        current_status = getattr(self, "status", SessionStatus.NOT_STARTED)
-        if not 0 <= value <= 9:
-            raise SessionException("Value must be between 0 and 9", current_status)
-        
-        self._precision = value
 
     @property
     def status(self) -> SessionStatus:
@@ -56,7 +48,7 @@ class Session:
         return SessionStatus.ENDED
 
     @property
-    def total_time(self) -> float:
+    def total_time(self) -> float | int:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
         
@@ -64,7 +56,7 @@ class Session:
         return round(max(0.0, current - self.start_time), self.precision)
 
     @property
-    def total_time_paused(self) -> float:
+    def total_time_paused(self) -> float | int:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
 
@@ -77,7 +69,7 @@ class Session:
         return round(total_time_paused, self.precision)
 
     @property
-    def total_time_idle(self) -> float:
+    def total_time_idle(self) -> float | int:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
 
@@ -90,7 +82,7 @@ class Session:
         return round(total_time_idle, self.precision)
 
     @property
-    def total_time_active(self) -> float:
+    def total_time_active(self) -> float | int:
         if self.status == SessionStatus.NOT_STARTED:
             return 0.0
         
