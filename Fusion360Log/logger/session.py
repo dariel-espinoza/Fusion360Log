@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from enum import Enum, auto
+from functools import wraps
 import time
 
 class SessionException(Exception):
@@ -14,6 +15,21 @@ class SessionStatus(Enum):
     PAUSED = auto()
     IDLE = auto()
     ENDED = auto()
+
+def _session_timer_property(func):
+    @property
+    @wraps(func)
+    def wrapper(self) -> float | int:
+        if self.status == SessionStatus.NOT_STARTED:
+            return 0.0
+        
+        result = func(self)
+
+        if self.precision <= 0:
+            result = int(result)
+        return round(max(0.0, result), self.precision)
+
+    return wrapper
 
 class Session:
     """ Generic, testable base class for tracking time and states. """
@@ -53,45 +69,33 @@ class Session:
             return SessionStatus.RUNNING
         return SessionStatus.ENDED
 
-    @property
+    @_session_timer_property
     def total_time(self) -> float | int:
-        if self.status == SessionStatus.NOT_STARTED:
-            return 0.0
-        
         current = self.end_time or self.clock()
-        return round(max(0.0, current - self.start_time), self.precision)
+        return current
 
-    @property
+    @_session_timer_property
     def total_time_paused(self) -> float | int:
-        if self.status == SessionStatus.NOT_STARTED:
-            return 0.0
-
         total_time_paused = sum([pause["duration"] for pause in self.pauses])
 
         if self._pause_start is not None:
             current_pause_time = self.clock() - self._pause_start
             total_time_paused += current_pause_time
 
-        return round(total_time_paused, self.precision)
+        return total_time_paused
 
-    @property
+    @_session_timer_property
     def total_time_idle(self) -> float | int:
-        if self.status == SessionStatus.NOT_STARTED:
-            return 0.0
-
         total_time_idle = sum([idle["duration"] for idle in self.idles])
         
         if self._idle_start is not None:
             current_idle_time = self.clock() - self._idle_start
             total_time_idle += current_idle_time
 
-        return round(total_time_idle, self.precision)
+        return total_time_idle
 
-    @property
+    @_session_timer_property
     def total_time_active(self) -> float | int:
-        if self.status == SessionStatus.NOT_STARTED:
-            return 0.0
-        
         if self.status == SessionStatus.RUNNING:
             current = self.clock()
         elif self.status == SessionStatus.ENDED:
@@ -100,9 +104,7 @@ class Session:
             current = self._pause_start or self._idle_start
 
         non_active_time = self.total_time_paused + self.total_time_idle
-        current_total_time = current - self.start_time
-        total_time_active = current_total_time - non_active_time
-        return round(max(0.0, total_time_active), self.precision)
+        return (current - self.start_time) - non_active_time
 
     def start(self) -> None:
         if self.status != SessionStatus.NOT_STARTED:
@@ -205,3 +207,4 @@ class Session:
             "splits": self.splits,
             "has_splits": len(self.splits) > 0
         }
+    
