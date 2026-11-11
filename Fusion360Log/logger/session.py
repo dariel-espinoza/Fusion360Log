@@ -34,9 +34,10 @@ def _session_timer_property(func):
 class Session:
     """ Generic, testable base class for tracking time and states. """
 
-    def __init__(self, precision: int = 2, clock: Callable[[], float] = time.perf_counter) -> None:
+    def __init__(self, precision: int = 2, clock: Callable[[], float | int] = time.perf_counter) -> None:
 
         self._precision = precision
+        self._clock = clock
         
         self.start_time: float | None = None
         self.end_time: float | None = None
@@ -56,6 +57,10 @@ class Session:
     @property
     def precision(self) -> int:
         return self._precision
+
+    @property
+    def clock(self) -> Callable[[], float | int]:
+        return self._clock
 
     @property
     def status(self) -> SessionStatus:
