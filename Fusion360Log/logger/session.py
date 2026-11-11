@@ -71,28 +71,15 @@ class Session:
 
     @_session_timer_property
     def total_time(self) -> float | int:
-        current = self.end_time or self.clock()
-        return current
+        return (self.end_time or self.clock()) - self.start_time
 
     @_session_timer_property
     def total_time_paused(self) -> float | int:
-        total_time_paused = sum([pause["duration"] for pause in self.pauses])
-
-        if self._pause_start is not None:
-            current_pause_time = self.clock() - self._pause_start
-            total_time_paused += current_pause_time
-
-        return total_time_paused
+        return self._sum_time_list(self.pauses, self._pause_start, self.clock())
 
     @_session_timer_property
     def total_time_idle(self) -> float | int:
-        total_time_idle = sum([idle["duration"] for idle in self.idles])
-        
-        if self._idle_start is not None:
-            current_idle_time = self.clock() - self._idle_start
-            total_time_idle += current_idle_time
-
-        return total_time_idle
+        return self._sum_time_list(self.idles, self._idle_start, self.clock())
 
     @_session_timer_property
     def total_time_active(self) -> float | int:
@@ -207,4 +194,12 @@ class Session:
             "splits": self.splits,
             "has_splits": len(self.splits) > 0
         }
-    
+
+    @staticmethod
+    def _sum_time_list(list: list, status_start_time: float | None, current_time: float | None) -> float:
+        total_time = sum([i["duration"] for i in list])
+        
+        if status_start_time is not None:
+            total_time += current_time - status_start_time
+
+        return total_time
