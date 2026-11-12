@@ -2,7 +2,7 @@ import pytest
 from dataclasses import dataclass
 from Fusion360Log.logger.session import Session, SessionStatus, SessionException
 
-actions: dict[SessionStatus, list] = {
+INVALID_ACTIONS: dict[SessionStatus, list[str]] = {
     SessionStatus.NOT_STARTED: ["pause", "idle", "resume", "split", "end"],
     SessionStatus.RUNNING: ["start", "resume"],
     SessionStatus.PAUSED: ["start","pause", "idle"],
@@ -10,9 +10,9 @@ actions: dict[SessionStatus, list] = {
     SessionStatus.ENDED: ["start", "pause", "idle", "resume", "split", "end"]
 }
 
-state_action_pairs: list[tuple[SessionStatus, str]] = [
+INVALID_STATE_ACTION_PAIRS: list[tuple[SessionStatus, str]] = [
     (state, action) 
-    for state, action_list in actions.items()
+    for state, action_list in INVALID_ACTIONS.items()
     for action in action_list
 ]
 
@@ -33,25 +33,33 @@ class MockSession:
     session: Session
     clock: MockTime
 
-    def __post_init__(self):
-        self.session._clock = self.clock.time
+    @classmethod
+    def create(cls, start_time: float | int = 100) -> MockSession:
+        clock = MockTime(start_time)
+        return cls(clock=clock, session=Session(clock=clock.time))
+
+    @staticmethod
+    def _set_state(instance: MockSession, state: SessionStatus) -> MockTime:
+        if state == SessionStatus.NOT_STARTED:
+            return instance
+        
+        instance.session.start()    
+
+        match state:
+            case SessionStatus.RUNNING:
+                pass
+            case SessionStatus.PAUSED:
+                instance.session.pause()
+            case SessionStatus.IDLE:
+                instance.session.idle()
+            case SessionStatus.ENDED:
+                instance.session.end()
+        return instance
+
 
 @pytest.fixture
 def mock_session() -> MockSession:
-    return MockSession(Session(), MockTime())
-
-@pytest.fixture
-def configured_mock_session(mock_session, state) -> MockSession:
-    if state != SessionStatus.NOT_STARTED:
-        mock_session.session.start()
-        if state != SessionStatus.RUNNING:
-            if state == SessionStatus.PAUSED:
-                mock_session.session.pause()
-            if state == SessionStatus.IDLE:
-                mock_session.session.idle()
-            if state == SessionStatus.ENDED:
-                mock_session.session.end()
-    return mock_session
+    return MockSession.create()
 
 def test_initial_state(mock_session):
     assert mock_session.session.status == SessionStatus.NOT_STARTED
@@ -60,13 +68,15 @@ def test_initial_state(mock_session):
     assert mock_session.session.total_time_idle == 0.0
     assert mock_session.session.total_time_active == 0.0
 
-@pytest.mark.parametrize("state, action", state_action_pairs)
-def test_invalid_actions(configured_mock_session, state, action):
+@pytest.mark.parametrize("state, action", INVALID_STATE_ACTION_PAIRS)
+def test_invalid_actions(mock_session, state, action):
+    MockSession._set_state(mock_session, state=state)
 
     with pytest.raises(SessionException) as exc_info:
-        getattr(configured_mock_session.session, action)()
+        getattr(mock_session.session, action)()
 
     assert exc_info.value.state == state
+    assert mock_session.session.status == state
 
 
 
