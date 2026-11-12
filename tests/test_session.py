@@ -72,10 +72,10 @@ def mock_session() -> MockSession:
 
 def test_initial_state(mock_session):
     assert mock_session.session.status == SessionStatus.NOT_STARTED
-    assert mock_session.session.total_time == 0.0
-    assert mock_session.session.total_time_paused == 0.0
-    assert mock_session.session.total_time_idle == 0.0
-    assert mock_session.session.total_time_active == 0.0
+    assert mock_session.session.time.total == 0.0
+    assert mock_session.session.time.paused == 0.0
+    assert mock_session.session.time.idle == 0.0
+    assert mock_session.session.time.active == 0.0
 
 @pytest.mark.parametrize("time_change", [(0,0), (0, 10), (50, 100), (500, 0, 200), (8,) * 15])
 def test_running_state(mock_session, time_change):
@@ -86,11 +86,12 @@ def test_running_state(mock_session, time_change):
         mock_session.clock.advance(change)
         time_passed += change
         assert mock_session.session.status == SessionStatus.RUNNING
+        assert mock_session.session.start_time == mock_session.clock.start_time
         assert mock_session.clock._time == mock_session.clock.start_time + time_passed
-        assert mock_session.session.total_time == time_passed
-        assert mock_session.session.total_time_paused == 0.0
-        assert mock_session.session.total_time_idle == 0.0
-        assert mock_session.session.total_time_active == time_passed
+        assert mock_session.session.time.total == time_passed
+        assert mock_session.session.time.paused == 0.0
+        assert mock_session.session.time.idle == 0.0
+        assert mock_session.session.time.active == time_passed
 
 @pytest.mark.parametrize("state, action", INVALID_STATE_ACTION_PAIRS)
 def test_invalid_actions(mock_session, state, action):

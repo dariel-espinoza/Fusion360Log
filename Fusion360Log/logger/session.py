@@ -16,20 +16,49 @@ class SessionStatus(Enum):
     IDLE = auto()
     ENDED = auto()
 
-def _session_timer_property(func):
+class _SessionTime:
+    _METRICS = {"total", "paused", "idle", "active"}
+    
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def __getattribute__(self, name):
+        if name in _SessionTime._METRICS:
+            session = super().__getattribute__("_s")
+            if session.status == SessionStatus.NOT_STARTED:
+                return 0.0
+            
+            raw_value = super().__getattribute__(name)
+            if session.precision <= 0:
+                return int(max(0.0, raw_value))
+            return round(max(0.0, raw_value), session.precision)
+
+        return super().__getattribute__(name)
+
     @property
-    @wraps(func)
-    def wrapper(self) -> float | int:
-        if self.status == SessionStatus.NOT_STARTED:
-            return 0.0
-        
-        result = func(self)
+    def total(self) -> float | int:
+        return (self._s.end_time or self._s.clock()) - self._s.start_time
 
-        if self.precision <= 0:
-            result = int(result)
-        return round(max(0.0, result), self.precision)
+    @property
+    def paused(self) -> float | int:
+        return self._s._sum_time_list(self._s.pauses, self._s._pause_start, self._s.clock())
 
-    return wrapper
+    @property
+    def idle(self) -> float | int:
+        return self._s._sum_time_list(self._s.idles, self._s._idle_start, self._s.clock())
+
+    @property
+    def active(self) -> float | int:
+        if self._s.status == SessionStatus.RUNNING:
+            current = self._s.clock()
+        elif self._s.status == SessionStatus.ENDED:
+            current = self._s.end_time
+        else:
+            current = self._s._pause_start or self._s._idle_start
+
+        non_active_time = self._s.time.paused + self._s.time.idle
+        return (current - self._s.start_time) - non_active_time
+
 
 class Session:
     """ Generic, testable base class for tracking time and states. """
@@ -38,6 +67,7 @@ class Session:
 
         self._precision = precision
         self._clock = clock
+        self._time = _SessionTime(self)
         
         self.start_time: float | None = None
         self.end_time: float | None = None
@@ -74,29 +104,9 @@ class Session:
             return SessionStatus.RUNNING
         return SessionStatus.ENDED
 
-    @_session_timer_property
-    def total_time(self) -> float | int:
-        return (self.end_time or self.clock()) - self.start_time
-
-    @_session_timer_property
-    def total_time_paused(self) -> float | int:
-        return self._sum_time_list(self.pauses, self._pause_start, self.clock())
-
-    @_session_timer_property
-    def total_time_idle(self) -> float | int:
-        return self._sum_time_list(self.idles, self._idle_start, self.clock())
-
-    @_session_timer_property
-    def total_time_active(self) -> float | int:
-        if self.status == SessionStatus.RUNNING:
-            current = self.clock()
-        elif self.status == SessionStatus.ENDED:
-            current = self.end_time
-        else:
-            current = self._pause_start or self._idle_start
-
-        non_active_time = self.total_time_paused + self.total_time_idle
-        return (current - self.start_time) - non_active_time
+    @property
+    def time(self) -> _SessionTime:
+        return self._time
 
     def start(self) -> None:
         if self.status != SessionStatus.NOT_STARTED:
