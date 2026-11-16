@@ -1,6 +1,6 @@
 import time
 from enum import Enum, auto
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from collections.abc import Callable
 from typing import Optional, Self
@@ -42,6 +42,75 @@ class Clock:
             return None
         return datetime.fromtimestamp(self.wall(), tz=timezone.utc)
 
+@dataclass(frozen=True, slots=True)
+class _SessionStatus:
+    _history: list[SessionStatus] = field(default_factory=list)
+
+    def __call__(self) -> Optional[SessionStatus]:
+        return self.current
+
+    def __str__(self) -> str:
+        return f'Current: {self.current}\nPrevious: {self.previous}'
+
+    @property
+    def history(self) -> list[SessionStatus]:
+        return self._history
+
+    @property
+    def current(self) -> Optional[SessionStatus]:
+        return self.history[-1] if self.history else None
+
+    @property
+    def previous(self) -> Optional[SessionStatus]:
+        return self.history[-2] if self.history else None
+
+    @property
+    def add(self) -> _AddStatus:
+        return self._AddStatus(history=self.history, ss_instance=self)
+
+    @property
+    def is_not_started(self) -> bool: return self.current == SessionStatus.NOT_STARTED
+    @property
+    def is_running(self) -> bool: return self.current == SessionStatus.RUNNING
+    @property
+    def is_paused(self) -> bool: return self.current == SessionStatus.PAUSED
+    @property
+    def is_idle(self) -> bool: return self.current == SessionStatus.IDLE
+    @property
+    def is_ended(self) -> bool: return self.current == SessionStatus.ENDED
+
+    @dataclass(frozen=True, slots=True)
+    class _AddStatus:
+        history: list[SessionStatus]
+        ss_instance: _SessionStatus
+
+        @property
+        def not_started(self) -> _SessionStatus: 
+            return self._replace(self._append(SessionStatus.NOT_STARTED))
+
+        @property
+        def running(self) -> _SessionStatus: 
+            return self._replace(self._append(SessionStatus.RUNNING))
+
+        @property
+        def paused(self) -> _SessionStatus: 
+            return self._replace(self._append(SessionStatus.PAUSED))
+
+        @property
+        def idle(self) -> _SessionStatus: 
+            return self._replace(self._append(SessionStatus.IDLE))
+
+        @property
+        def ended(self) -> _SessionStatus: 
+            return self._replace(self._append(SessionStatus.ENDED))
+
+        def _replace(self, new_history: list[SessionStatus], ss_instance: Optional[_SessionStatus] = None) -> _SessionStatus:
+            return replace(ss_instance or self.ss_instance, _history=new_history)
+
+        def _append(self, status: SessionStatus) -> list[SessionStatus]:
+            self.history.append(status)
+            return self.history
+
 class _SessionTime:
     _METRICS = {"total", "paused", "idle", "active"}
     
@@ -51,7 +120,7 @@ class _SessionTime:
     def __getattribute__(self, name):
         if name in _SessionTime._METRICS:
             session = super().__getattribute__("_s")
-            if session.status == SessionStatus.NOT_STARTED:
+            if session.status.is_not_started:
                 return 0.0
             
             raw_value = super().__getattribute__(name)
@@ -75,9 +144,9 @@ class _SessionTime:
 
     @property
     def active(self) -> float | int:
-        if self._s.status == SessionStatus.RUNNING:
+        if self._s.status.is_running:
             current = self._s.clock()
-        elif self._s.status == SessionStatus.ENDED:
+        elif self._s.status.is_ended:
             current = self._s.end_time
         else:
             current = self._s._pause_start or self._s._idle_start
@@ -98,7 +167,8 @@ class Session:
 
         self._precision = precision
         self._clock: Clock = Clock(monotonic=mono_clock, wall=wall_clock)
-        self._time = _SessionTime(self)
+        self._time: _SessionTime = _SessionTime(self)
+        self._status: _SessionStatus = _SessionStatus().add.not_started
         
         self.start_time: float | None = None
         self.end_time: float | None = None
@@ -110,7 +180,7 @@ class Session:
         self.idles: list[dict] = []
 
     def __str__(self):
-        return f"Status: {self.status}\nTime Elapsed: {self.time.total}"
+        return f"Status: {self.status.current}\nTime Elapsed: {self.time.total}"
 
     def __repr__(self):
         return f"{self.__class__.__name__}(precision={self.precision!r})"
@@ -124,29 +194,27 @@ class Session:
         return self._clock
 
     @property
-    def status(self) -> SessionStatus:
-        if self.start_time is None:
-            return SessionStatus.NOT_STARTED
-        if self.end_time is None:
-            if self._pause_start is not None:
-                return SessionStatus.PAUSED
-            if self._idle_start is not None:
-                return SessionStatus.IDLE
-            return SessionStatus.RUNNING
-        return SessionStatus.ENDED
+    def status(self) -> _SessionStatus:
+        return self._status
+
+    @status.setter
+    def status(self, status) -> None:
+        self._status = status
 
     @property
     def time(self) -> _SessionTime:
         return self._time
 
     def start(self) -> None:
-        if self.status != SessionStatus.NOT_STARTED:
-            raise SessionException("Session was already started.", self.status)
+        if not self.status.is_not_started:
+            raise SessionException("Session was already started.", self.status.current)
         self.start_time = self.clock()
 
+        self.status = self.status.add.running
+
     def pause(self, reason: str = "manual") -> None:
-        if self.status != SessionStatus.RUNNING:
-            raise SessionException("Can only pause a running session.", self.status)
+        if not self.status.is_running:
+            raise SessionException("Can only pause a running session.", self.status.current)
         self._pause_start = self.clock()
 
         self.pauses.append({
@@ -157,9 +225,11 @@ class Session:
             "duration": 0.0
         })
 
+        self.status = self.status.add.paused
+
     def idle(self) -> None:
-        if self.status != SessionStatus.RUNNING:
-            raise SessionException("Can only declare idle on a running session.", self.status)
+        if not self.status.is_running:
+            raise SessionException("Can only declare idle on a running session.", self.status.current)
         self._idle_start = self.clock()
 
         self.idles.append({
@@ -169,13 +239,15 @@ class Session:
             "duration": 0.0
         })
 
+        self.status = self.status.add.idle
+
     def resume(self) -> None:
-        if self.status not in (SessionStatus.PAUSED, SessionStatus.IDLE):
-            raise SessionException("Can only resume a paused or idle session.", self.status)
+        if self.status.current not in (SessionStatus.PAUSED, SessionStatus.IDLE):
+            raise SessionException("Can only resume a paused or idle session.", self.status.current)
         
         now = self.clock()
 
-        if self.status == SessionStatus.PAUSED:
+        if self.status.is_paused:
             last_pause = self.pauses[-1]
             last_pause["end_perf"] = now
             last_pause["duration"] = now - self._pause_start
@@ -188,19 +260,21 @@ class Session:
             
             self._idle_start = None
 
+        self.status = self.status.add.running
+
 
 
     def split(self, label: str = "", split_type: str = "active") -> float:
-        if self.status not in (SessionStatus.RUNNING, SessionStatus.PAUSED, SessionStatus.IDLE):
-            raise SessionException("Cannot split on an inactive session.", self.status)
+        if self.status.current not in (SessionStatus.RUNNING, SessionStatus.PAUSED, SessionStatus.IDLE):
+            raise SessionException("Cannot split on an inactive session.", self.status.current)
 
         split_types = {
-            "active": self.total_time_active,
-            "elapsed": self.total_time
+            "active": self.time.active,
+            "elapsed": self.time.total
         }
 
         if split_type not in split_types:
-            raise SessionException(f"Invalid split type. Value split types: {', '.join(split_types)}.", self.status)
+            raise SessionException(f"Invalid split type. Value split types: {', '.join(split_types)}.", self.status.current)
 
         current_elapsed = split_types.get(split_type)
         self.splits.append({
@@ -212,10 +286,10 @@ class Session:
         return current_elapsed
 
     def end(self) -> None:
-        if self.status == SessionStatus.NOT_STARTED:
-            raise SessionException("Cannot end a session that has not started.", self.status)
-        if self.status == SessionStatus.ENDED:
-            raise SessionException("Session already ended.", self.status)
+        if self.status.is_not_started:
+            raise SessionException("Cannot end a session that has not started.", self.status.current)
+        if self.status.is_ended:
+            raise SessionException("Session already ended.", self.status.current)
 
         now = self.clock()
 
@@ -231,12 +305,13 @@ class Session:
             self._idle_start = None
 
         self.end_time = now
+        self.status = self.status.add.ended
 
     def to_dict(self) -> dict:
         return {
-            "status": self.status.name,
-            "total_total_time": self.total_time,
-            "total_total_time_active": self.total_time_active,
+            "status": self.status.current,
+            "total_total_time": self.time.total,
+            "total_total_time_active": self.time.active,
             "splits": self.splits,
             "has_splits": len(self.splits) > 0
         }

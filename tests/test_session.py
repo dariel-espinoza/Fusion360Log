@@ -71,7 +71,12 @@ def mock_session() -> MockSession:
     return MockSession.create()
 
 def test_initial_state(mock_session):
-    assert mock_session.session.status == SessionStatus.NOT_STARTED
+    assert mock_session.session.status.is_not_started
+    assert not mock_session.session.status.is_running
+    assert not mock_session.session.status.is_paused
+    assert not mock_session.session.status.is_idle
+    assert not mock_session.session.status.is_ended
+    assert mock_session.session.status.current == SessionStatus.NOT_STARTED
     assert mock_session.session.time.total == 0.0
     assert mock_session.session.time.paused == 0.0
     assert mock_session.session.time.idle == 0.0
@@ -85,7 +90,12 @@ def test_running_state(mock_session, time_change):
     for change in time_change:
         mock_session.clock.advance(change)
         time_passed += change
-        assert mock_session.session.status == SessionStatus.RUNNING
+        assert not mock_session.session.status.is_not_started
+        assert mock_session.session.status.is_running
+        assert not mock_session.session.status.is_paused
+        assert not mock_session.session.status.is_idle
+        assert not mock_session.session.status.is_ended
+        assert mock_session.session.status.current == SessionStatus.RUNNING
         assert mock_session.session.start_time == mock_session.clock.start_time
         assert mock_session.clock._time == mock_session.clock.start_time + time_passed
         assert mock_session.session.time.total == time_passed
@@ -101,7 +111,7 @@ def test_invalid_actions(mock_session, state, action):
         getattr(mock_session.session, action)()
 
     assert exc_info.value.state == state
-    assert mock_session.session.status == state
+    assert mock_session.session.status.current == state
 
 
 
