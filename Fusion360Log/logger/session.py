@@ -1,7 +1,10 @@
-from collections.abc import Callable
-from enum import Enum, auto
-from functools import wraps
 import time
+from enum import Enum, auto
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from collections.abc import Callable
+from typing import Optional, Self
+
 
 class SessionException(Exception):
     def __init__(self, message, status) -> None:
@@ -15,6 +18,29 @@ class SessionStatus(Enum):
     PAUSED = auto()
     IDLE = auto()
     ENDED = auto()
+
+@dataclass(frozen=True, slots=True)
+class Clock:
+    monotonic: Callable[[], float] = time.perf_counter
+    wall: Optional[Callable[[], float]] = time.time
+
+    def __call__(self) -> float:
+        return self.monotonic()
+
+    def __str__(self) -> str:
+        monotonic, wall = self.now()
+        return f'Monotonic: {monotonic}\nWall: {wall}'
+
+    def now(self) -> tuple[float, Optional[float]]:
+        return (
+            self.monotonic(), 
+            self.wall() if self.wall is not None else None,
+            )
+
+    def utc_now(self) -> datetime | None:
+        if self.wall is None:
+            return None
+        return datetime.fromtimestamp(self.wall(), tz=timezone.utc)
 
 class _SessionTime:
     _METRICS = {"total", "paused", "idle", "active"}
@@ -63,10 +89,15 @@ class _SessionTime:
 class Session:
     """ Generic, testable base class for tracking time and states. """
 
-    def __init__(self, precision: int = 2, clock: Callable[[], float | int] = time.perf_counter) -> None:
+    def __init__(
+            self, 
+            precision: int = 2,
+            mono_clock: Callable[[], float | int] = time.perf_counter,
+            wall_clock: Optional[Callable[[], float | int]] = time.time 
+        ) -> None:
 
         self._precision = precision
-        self._clock = clock
+        self._clock: Clock = Clock(monotonic=mono_clock, wall=wall_clock)
         self._time = _SessionTime(self)
         
         self.start_time: float | None = None
@@ -79,7 +110,7 @@ class Session:
         self.idles: list[dict] = []
 
     def __str__(self):
-        return f"Status: {self.status}\nTime Elapsed: {self.total_time}"
+        return f"Status: {self.status}\nTime Elapsed: {self.time.total}"
 
     def __repr__(self):
         return f"{self.__class__.__name__}(precision={self.precision!r})"
@@ -89,7 +120,7 @@ class Session:
         return self._precision
 
     @property
-    def clock(self) -> Callable[[], float | int]:
+    def clock(self) -> Clock:
         return self._clock
 
     @property

@@ -45,7 +45,7 @@ class MockSession:
     @classmethod
     def create(cls, start_time: float | int = 100) -> MockSession:
         clock = MockTime(start_time)
-        return cls(clock=clock, session=Session(clock=clock.time))
+        return cls(clock=clock, session=Session(mono_clock=clock.time, wall_clock=None))
 
     @staticmethod
     def _set_state(instance: MockSession, state: SessionStatus) -> MockTime:
