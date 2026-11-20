@@ -44,17 +44,13 @@ class Clock:
 
 @dataclass(frozen=True, slots=True)
 class _SessionStatus:
-    _history: list[SessionStatus] = field(default_factory=list)
+    history: list[SessionStatus] = field(default_factory=list)
 
     def __call__(self) -> Optional[SessionStatus]:
         return self.current
 
     def __str__(self) -> str:
         return f'Current: {self.current}\nPrevious: {self.previous}'
-
-    @property
-    def history(self) -> list[SessionStatus]:
-        return self._history
 
     @property
     def current(self) -> Optional[SessionStatus]:
@@ -105,54 +101,274 @@ class _SessionStatus:
             return self._replace(self._append(SessionStatus.ENDED))
 
         def _replace(self, new_history: list[SessionStatus], ss_instance: Optional[_SessionStatus] = None) -> _SessionStatus:
-            return replace(ss_instance or self.ss_instance, _history=new_history)
+            return replace(ss_instance or self.ss_instance, history=new_history)
 
         def _append(self, status: SessionStatus) -> list[SessionStatus]:
             self.history.append(status)
             return self.history
 
+@dataclass(slots=True)
 class _SessionTime:
-    _METRICS = {"total", "paused", "idle", "active"}
+    clock: Clock
+    preicsion: int
+    _history: Intervals
+    _actives: Intervals
+    _pauses: Intervals
+    _idles: Intervals
+    _splits: Splits
+
+    def __call__(self) -> Optional[Intervals.Interval]:
+        return self.current
+
+    def __str__(self) -> str:
+        return f'Current: {self.current}\nPrevious: {self.previous}'
+
+    @property
+    def clock(self) -> Clock:
+        return self.clock
+
+    @property
+    def complete(self) -> Intervals: return self._history
+    @property
+    def actives(self) -> Intervals: return self._actives
+    @property
+    def pauses(self) -> Intervals: return self._pauses
+    @property
+    def idles(self) -> Intervals: return self._pauses
+    @property
+    def splits(self) -> Splits: return self._splits
     
-    def __init__(self, session: Session) -> None:
-        self._s = session
+    @property
+    def current(self) -> Optional[Intervals.Interval]:
+        return self.complete.current
 
-    def __getattribute__(self, name):
-        if name in _SessionTime._METRICS:
-            session = super().__getattribute__("_s")
-            if session.status.is_not_started:
+    @property
+    def previous(self) -> Optional[Intervals.Interval]:
+        return self.complete.previous
+
+    @property
+    def add(self) -> _AppendHistory:
+        return self._AppendHistory(th_instance=self)
+
+    @classmethod
+    def new(cls, clock: Clock, precision: int) -> _SessionTime:
+        return cls(
+            clock=clock,
+            precision=precision,
+            _history=cls.Intervals.new(clock=clock),
+            _actives=cls.Intervals.new(clock=clock),
+            _pauses=cls.Intervals.new(clock=clock),
+            _idles=cls.Intervals.new(clock=clock),
+            _splits=cls.Splits.new(clock=clock)
+            )
+
+    @dataclass(slots=True)
+    class Intervals:
+        clock: Clock
+        history: list[Interval]
+
+        def __call__(self) -> Optional[Interval]:
+            return self.current
+
+        def __str__(self) -> str:
+            return f'Current: {self.current}\nPrevious: {self.previous}'
+
+        @property
+        def start(self) -> Optional[Interval.Stamp]:
+            return self.history[0].start if self.history else None
+
+        @property
+        def end(self) -> Optional[Interval.Stamp]:
+            return self.history[-1].end if self.history else None
+
+        @property
+        def current(self) -> Optional[Interval]:
+            return self.history[-1] if self.history else None
+
+        @property
+        def previous(self) -> Optional[Interval]:
+            return self.history[-2] if len(self.history) >= 2 else None
+
+        @property
+        def duration(self) -> Optional[Interval]:
+            return sum([interval.duration for interval in self.history])
+
+        @classmethod
+        def new(cls, clock: Clock) -> Self:
+            return cls(clock=clock, history=[])
+
+        @dataclass(slots=True)
+        class Interval:
+            clock: Clock
+            start: Stamp
+            end: Stamp
+            reason: Optional[str] = field(default=None)
+
+            def __call__(self) -> Stamp:
+                return self.start if self.end.monotonic is None else self.end
+
+            def __str__(self) -> str:
+                return f'''
+                Start:\n
+                Monotonic: {self.start.monotonic}\n
+                Wall: {self.start.wall}\n\n
+                End:\n
+                Monotonic: {self.end.monotonic}\n
+                Wall: {self.end.wall}'''
+
+            @property
+            def duration(self) -> float:
+                if self.start.monotonic:
+                    return (self.end.monotonic() or self.clock.monotonic()) - self.start.monotonic
                 return 0.0
-            
-            raw_value = super().__getattribute__(name)
-            if session.precision <= 0:
-                return int(max(0.0, raw_value))
-            return round(max(0.0, raw_value), session.precision)
 
-        return super().__getattribute__(name)
+            def stop(self, clock: Clock) -> Self:
+                self.end.now(clock=clock)
+                return self
 
-    @property
-    def total(self) -> float | int:
-        return (self._s.end_time or self._s.clock()) - self._s.start_time
+            @classmethod
+            def now(cls, clock: Clock) -> Self:
+                return cls(clock=clock, start=cls.Stamp().now(clock=clock), end=cls.Stamp())
 
-    @property
-    def paused(self) -> float | int:
-        return self._s._sum_time_list(self._s.pauses, self._s._pause_start, self._s.clock())
+            @classmethod
+            def _add(
+                    cls, 
+                    history: list[Self], 
+                    clock: Clock, 
+                    start: Optional[Stamp] = None, 
+                    end: Optional[Stamp] = None, 
+                    reason: Optional[str] = None
+                ) -> list[Self]:
+                    history.append(
+                        cls(
+                            clock=clock,
+                            start=start or cls.Stamp().now(clock=clock),
+                            end=end or cls.Stamp(),
+                            reason=reason
+                        )
+                    )
+                    return history
 
-    @property
-    def idle(self) -> float | int:
-        return self._s._sum_time_list(self._s.idles, self._s._idle_start, self._s.clock())
+            @dataclass(slots=True)
+            class Stamp:
+                monotonic: Optional[float] = field(default=None)
+                wall: Optional[float] = field(default=None)
 
-    @property
-    def active(self) -> float | int:
-        if self._s.status.is_running:
-            current = self._s.clock()
-        elif self._s.status.is_ended:
-            current = self._s.end_time
-        else:
-            current = self._s._pause_start or self._s._idle_start
+                def __call__(self) -> Optional[float]:
+                    return self.monotonic
 
-        non_active_time = self._s.time.paused + self._s.time.idle
-        return (current - self._s.start_time) - non_active_time
+                def __str__(self) -> str:
+                    return f'Monotonic: {self.monotonic}\nWall: {self.wall}'
+
+                def now(self, clock: Clock) -> Self:
+                    self.monotonic, self.wall = clock.now()
+                    return self
+
+    @dataclass(slots=True)
+    class Splits:
+        clock: Clock
+        history: list[Split]
+
+        def __call__(self) -> Optional[Split]:
+            return self.recent
+
+        def __str__(self) -> str:
+            return f'Recent: {self.recent}\nPrevious: {self.previous}'
+
+        @property
+        def recent(self) -> Optional[Split]:
+            return self.history[-1] if self.history else None
+
+        @property
+        def previous(self) -> Optional[Split]:
+            return self.history[-2] if len(self.history) >= 2 else None
+
+        @classmethod
+        def new(cls, clock: Clock) -> Self:
+            return cls(clock=clock, history=[])
+
+        @dataclass(slots=True)
+        class Split:
+            label: str
+            monotonic: float
+            wall: Optional[float] = None
+            reason: Optional[str] = None
+
+            def __call__(self):
+                return self.monotonic
+
+            def __str__(self):
+                return f'Monotonic: {self.monotonic}\nWall: {self.wall}\nReason: {self.reason}'
+
+            @classmethod
+            def now(cls, clock: Clock, reason: Optional[str] = None) -> Self:
+                return cls(
+                    monotonic=clock.monotonic(),
+                    wall=clock.wall() if clock.wall else None,
+                    reason=reason
+                )
+
+            @classmethod
+            def _add(
+                cls, 
+                history: list[Self],
+                label: str,
+                monotonic: float,
+                wall: Optional[float],
+                reason: Optional[str]
+                ) -> list[Self]:
+                history.append(cls(
+                    label=label,
+                    monotonic=monotonic,
+                    wall=wall,
+                    reason=reason
+                    )
+                )
+                return history
+
+    @dataclass(slots=True)
+    class _AppendHistory:
+        th_instance: _SessionTime
+
+        def active(self, clock: Optional[Clock] = None) -> _SessionTime:
+            actives = self.th_instance.actives.Interval._add(
+                    history=self.th_instance.actives.history,
+                    clock=clock or self.th_instance.clock.monotonic,
+                    reason="activity"
+                )
+            return self._append(actives)
+        
+        def pause(self, reason: str, clock: Optional[Clock] = None) -> _SessionTime:
+            pauses = self.th_instance.pauses.Interval._add(
+                    history=self.th_instance.pauses.history,
+                    clock=clock or self.th_instance.clock.monotonic,
+                    reason=reason
+                )
+            return self._append(pauses)
+
+        def idle(self, clock: Optional[Clock] = None) -> _SessionTime:
+            idles = self.th_instance.idles.Interval._add(
+                    history=self.th_instance.idles.history,
+                    clock=clock or self.th_instance.clock.monotonic,
+                    reason="inactivity"
+                )
+            return self._append(idles)
+
+        def split(self, label: str = "", clock: Optional[Clock] = None) -> list[Self]:
+            splits = self.th_instance.splits.history.append(
+                self.th_instance.splits.Split._add(
+                    history=self.th_instance.splits.history,
+                    label=label,
+                    monotonic=clock or self.th_instance.clock.monotonic,
+                    wall=self.th_instance.clock.wall,
+                    reason="manual"
+                )
+            )
+            return self._append(splits)
+
+        def _append(self, intervals: list[_SessionTime.Intervals.Interval]) -> _SessionTime:
+            self.th_instance.complete.history.append(intervals[-1])
+            return self.th_instance
 
 
 class Session:
@@ -165,33 +381,15 @@ class Session:
             wall_clock: Optional[Callable[[], float | int]] = time.time 
         ) -> None:
 
-        self._precision = precision
-        self._clock: Clock = Clock(monotonic=mono_clock, wall=wall_clock)
-        self._time: _SessionTime = _SessionTime(self)
+        clock: Clock = Clock(monotonic=mono_clock, wall=wall_clock)
+        self._time: _SessionTime = _SessionTime.new(clock=clock, precision=precision)
         self._status: _SessionStatus = _SessionStatus().add.not_started
-        
-        self.start_time: float | None = None
-        self.end_time: float | None = None
-        self._pause_start: float | None = None
-        self._idle_start: float | None = None
-
-        self.splits: list[dict] = []
-        self.pauses: list[dict] = []
-        self.idles: list[dict] = []
 
     def __str__(self):
-        return f"Status: {self.status.current}\nTime Elapsed: {self.time.total}"
+        return f"Status: {self.status.current}\nTime Elapsed: {self.time.complete.duration}"
 
     def __repr__(self):
         return f"{self.__class__.__name__}(precision={self.precision!r})"
-    
-    @property
-    def precision(self) -> int:
-        return self._precision
-
-    @property
-    def clock(self) -> Clock:
-        return self._clock
 
     @property
     def status(self) -> _SessionStatus:
@@ -208,82 +406,38 @@ class Session:
     def start(self) -> None:
         if not self.status.is_not_started:
             raise SessionException("Session was already started.", self.status.current)
-        self.start_time = self.clock()
 
+        self.time.add.active()
         self.status = self.status.add.running
 
     def pause(self, reason: str = "manual") -> None:
         if not self.status.is_running:
             raise SessionException("Can only pause a running session.", self.status.current)
-        self._pause_start = self.clock()
 
-        self.pauses.append({
-            "reason": reason,
-            "start_wall_time": time.time(),
-            "start_perf": self._pause_start,
-            "end_perf": None,
-            "duration": 0.0
-        })
-
+        self.time.add.pause(reason=reason)
         self.status = self.status.add.paused
 
     def idle(self) -> None:
         if not self.status.is_running:
             raise SessionException("Can only declare idle on a running session.", self.status.current)
-        self._idle_start = self.clock()
-
-        self.idles.append({
-            "start_wall_time": time.time(),
-            "start_perf": self._idle_start,
-            "end_perf": None,
-            "duration": 0.0
-        })
-
+        
+        self.time.add.idle()
         self.status = self.status.add.idle
 
     def resume(self) -> None:
         if self.status.current not in (SessionStatus.PAUSED, SessionStatus.IDLE):
             raise SessionException("Can only resume a paused or idle session.", self.status.current)
         
-        now = self.clock()
-
-        if self.status.is_paused:
-            last_pause = self.pauses[-1]
-            last_pause["end_perf"] = now
-            last_pause["duration"] = now - self._pause_start
-            
-            self._pause_start = None
-        else:
-            last_idle = self.idles[-1]
-            last_idle["end_perf"] = now
-            last_idle["duration"] = now - self._idle_start
-            
-            self._idle_start = None
-
+        self.time.current.stop(clock=self.time.clock)
+        self.time.add.active()
         self.status = self.status.add.running
 
-
-
-    def split(self, label: str = "", split_type: str = "active") -> float:
+    def split(self, label: str = "") -> float:
         if self.status.current not in (SessionStatus.RUNNING, SessionStatus.PAUSED, SessionStatus.IDLE):
             raise SessionException("Cannot split on an inactive session.", self.status.current)
 
-        split_types = {
-            "active": self.time.active,
-            "elapsed": self.time.total
-        }
-
-        if split_type not in split_types:
-            raise SessionException(f"Invalid split type. Value split types: {', '.join(split_types)}.", self.status.current)
-
-        current_elapsed = split_types.get(split_type)
-        self.splits.append({
-            "label": label or f"Split {len(self.splits) + 1}",
-            "total_time": current_elapsed,
-            "timestamp": time.time(),
-            "time_perf": self.clock()
-        })
-        return current_elapsed
+        self.time.add.split(label=label)
+        return self.time.splits.recent.monotonic
 
     def end(self) -> None:
         if self.status.is_not_started:
@@ -291,36 +445,14 @@ class Session:
         if self.status.is_ended:
             raise SessionException("Session already ended.", self.status.current)
 
-        now = self.clock()
-
-        if self._pause_start != None:
-            last_pause = self.pauses[-1]
-            last_pause["end_perf"] = now
-            last_pause["duration"] = now - self._pause_start
-            self._pause_start = None
-        elif self._idle_start != None:
-            last_idle = self.idles[-1]
-            last_idle["end_perf"] = now
-            last_idle["duration"] = now - self._idle_start
-            self._idle_start = None
-
-        self.end_time = now
+        self.time.current.end.now()
         self.status = self.status.add.ended
 
     def to_dict(self) -> dict:
         return {
             "status": self.status.current,
-            "total_total_time": self.time.total,
-            "total_total_time_active": self.time.active,
-            "splits": self.splits,
-            "has_splits": len(self.splits) > 0
+            "total_total_time": self.time.complete.duration,
+            "total_total_time_active": self.time.actives.duration,
+            "splits": self.time.splits.history,
+            "has_splits": len(self.time.splits.history) > 0
         }
-
-    @staticmethod
-    def _sum_time_list(list: list, status_start_time: float | None, current_time: float | None) -> float:
-        total_time = sum([i["duration"] for i in list])
-        
-        if status_start_time is not None:
-            total_time += current_time - status_start_time
-
-        return total_time
