@@ -19,13 +19,17 @@ class SessionStatus(Enum):
     IDLE = auto()
     ENDED = auto()
 
+class FormatableFloat(float):
+    def format(self, precision: int) -> float:
+        return round(max(0.0, self), precision)
+
 @dataclass(frozen=True, slots=True)
 class Clock:
     monotonic: Callable[[], float] = time.perf_counter
     wall: Optional[Callable[[], float]] = time.time
 
-    def __call__(self) -> float:
-        return self.monotonic()
+    def __call__(self) -> FormatableFloat:
+        return FormatableFloat(self.monotonic())
 
     def __str__(self) -> str:
         monotonic, wall = self.now()
@@ -190,8 +194,8 @@ class _SessionTime:
             return self.history[-2] if len(self.history) >= 2 else None
 
         @property
-        def duration(self) -> Optional[Interval]:
-            return sum([interval.duration for interval in self.history])
+        def duration(self) -> FormatableFloat:
+            return FormatableFloat(sum([interval.duration for interval in self.history]))
 
         @classmethod
         def new(cls, clock: Clock) -> Self:
@@ -217,9 +221,9 @@ class _SessionTime:
                 Wall: {self.end.wall}'''
 
             @property
-            def duration(self) -> float:
+            def duration(self) -> FormatableFloat:
                 if self.start.monotonic:
-                    return (self.end.monotonic() or self.clock.monotonic()) - self.start.monotonic
+                    return FormatableFloat((self.end.monotonic() or self.clock.monotonic()) - self.start.monotonic)
                 return 0.0
 
             def stop(self, clock: Clock) -> Self:
@@ -251,10 +255,14 @@ class _SessionTime:
 
             @dataclass(slots=True)
             class Stamp:
-                monotonic: Optional[float] = field(default=None)
-                wall: Optional[float] = field(default=None)
+                monotonic: Optional[FormatableFloat] = field(default=None)
+                wall: Optional[FormatableFloat] = field(default=None)
 
-                def __call__(self) -> Optional[float]:
+                def __post_init__(self) -> None:
+                    self.monotonic = FormatableFloat(self.monotonic)
+                    self.wall = FormatableFloat(self.wall)
+
+                def __call__(self) -> Optional[FormatableFloat]:
                     return self.monotonic
 
                 def __str__(self) -> str:
@@ -290,8 +298,8 @@ class _SessionTime:
         @dataclass(slots=True)
         class Split:
             label: str
-            monotonic: float
-            wall: Optional[float] = None
+            monotonic: FormatableFloat
+            wall: Optional[FormatableFloat] = None
             reason: Optional[str] = None
 
             def __call__(self):
@@ -313,8 +321,8 @@ class _SessionTime:
                 cls, 
                 history: list[Self],
                 label: str,
-                monotonic: float,
-                wall: Optional[float],
+                monotonic: FormatableFloat,
+                wall: Optional[FormatableFloat],
                 reason: Optional[str]
                 ) -> list[Self]:
                 history.append(cls(
@@ -432,7 +440,7 @@ class Session:
         self.time.add.active()
         self.status = self.status.add.running
 
-    def split(self, label: str = "") -> float:
+    def split(self, label: str = "") -> FormatableFloat:
         if self.status.current not in (SessionStatus.RUNNING, SessionStatus.PAUSED, SessionStatus.IDLE):
             raise SessionException("Cannot split on an inactive session.", self.status.current)
 
