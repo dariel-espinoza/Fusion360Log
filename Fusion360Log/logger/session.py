@@ -23,7 +23,7 @@ class FormatableFloat(float):
     def format(self, precision: int) -> float:
         return round(max(0.0, self), precision)
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class Clock:
     monotonic: Callable[[], float] = time.perf_counter
     wall: Optional[Callable[[], float]] = time.time
@@ -46,15 +46,19 @@ class Clock:
             return None
         return datetime.fromtimestamp(self.wall(), tz=timezone.utc)
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _SessionStatus:
-    history: list[SessionStatus] = field(default_factory=list)
+    _history: list[SessionStatus] = field(default_factory=list)
 
     def __call__(self) -> Optional[SessionStatus]:
         return self.current
 
     def __str__(self) -> str:
         return f'Current: {self.current}\nPrevious: {self.previous}'
+
+    @property
+    def history(self) -> list[SessionStatus]:
+        return self._history
 
     @property
     def current(self) -> Optional[SessionStatus]:
@@ -66,7 +70,7 @@ class _SessionStatus:
 
     @property
     def add(self) -> _AddStatus:
-        return self._AddStatus(history=self.history, ss_instance=self)
+        return self._AddStatus(ss_instance=self)
 
     @property
     def is_not_started(self) -> bool: return self.current == SessionStatus.NOT_STARTED
@@ -79,37 +83,34 @@ class _SessionStatus:
     @property
     def is_ended(self) -> bool: return self.current == SessionStatus.ENDED
 
-    @dataclass(frozen=True, slots=True)
+    @dataclass(slots=True)
     class _AddStatus:
-        history: list[SessionStatus]
         ss_instance: _SessionStatus
 
         @property
         def not_started(self) -> _SessionStatus: 
-            return self._replace(self._append(SessionStatus.NOT_STARTED))
+            return self._append(SessionStatus.NOT_STARTED)
 
         @property
         def running(self) -> _SessionStatus: 
-            return self._replace(self._append(SessionStatus.RUNNING))
+            return self._append(SessionStatus.RUNNING)
 
         @property
         def paused(self) -> _SessionStatus: 
-            return self._replace(self._append(SessionStatus.PAUSED))
+            return self._append(SessionStatus.PAUSED)
 
         @property
         def idle(self) -> _SessionStatus: 
-            return self._replace(self._append(SessionStatus.IDLE))
+            return self._append(SessionStatus.IDLE)
 
         @property
         def ended(self) -> _SessionStatus: 
-            return self._replace(self._append(SessionStatus.ENDED))
+            return self._append(SessionStatus.ENDED)
 
-        def _replace(self, new_history: list[SessionStatus], ss_instance: Optional[_SessionStatus] = None) -> _SessionStatus:
-            return replace(ss_instance or self.ss_instance, history=new_history)
-
-        def _append(self, status: SessionStatus) -> list[SessionStatus]:
-            self.history.append(status)
-            return self.history
+        def _append(self, status: SessionStatus) -> _SessionStatus:
+            if self.ss_instance.current != status:
+                self.ss_instance._history.append(status)
+            return self.ss_instance
 
 @dataclass(slots=True)
 class _SessionTime:
@@ -416,21 +417,21 @@ class Session:
             raise SessionException("Session was already started.", self.status.current)
 
         self.time.add.active()
-        self.status = self.status.add.running
+        self.status.add.running
 
     def pause(self, reason: str = "manual") -> None:
         if not self.status.is_running:
             raise SessionException("Can only pause a running session.", self.status.current)
 
         self.time.add.pause(reason=reason)
-        self.status = self.status.add.paused
+        self.status.add.paused
 
     def idle(self) -> None:
         if not self.status.is_running:
             raise SessionException("Can only declare idle on a running session.", self.status.current)
         
         self.time.add.idle()
-        self.status = self.status.add.idle
+        self.status.add.idle
 
     def resume(self) -> None:
         if self.status.current not in (SessionStatus.PAUSED, SessionStatus.IDLE):
@@ -438,7 +439,7 @@ class Session:
         
         self.time.current.stop(clock=self.time.clock)
         self.time.add.active()
-        self.status = self.status.add.running
+        self.status.add.running
 
     def split(self, label: str = "") -> FormatableFloat:
         if self.status.current not in (SessionStatus.RUNNING, SessionStatus.PAUSED, SessionStatus.IDLE):
@@ -454,7 +455,7 @@ class Session:
             raise SessionException("Session already ended.", self.status.current)
 
         self.time.current.end.now()
-        self.status = self.status.add.ended
+        self.status.add.ended
 
     def to_dict(self) -> dict:
         return {
