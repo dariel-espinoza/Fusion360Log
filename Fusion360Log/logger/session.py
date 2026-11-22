@@ -35,10 +35,10 @@ class Clock:
         monotonic, wall = self.now()
         return f'Monotonic: {monotonic}\nWall: {wall}'
 
-    def now(self) -> tuple[float, Optional[float]]:
+    def now(self) -> tuple[FormatableFloat, Optional[FormatableFloat]]:
         return (
-            self.monotonic(), 
-            self.wall() if self.wall is not None else None,
+            FormatableFloat(self.monotonic()), 
+            FormatableFloat(self.wall()) if self.wall is not None else None,
             )
 
     def utc_now(self) -> datetime | None:
@@ -114,8 +114,8 @@ class _SessionStatus:
 
 @dataclass(slots=True)
 class _SessionTime:
-    clock: Clock
-    preicsion: int
+    _clock: Clock
+    _precision: int
     _history: Intervals
     _actives: Intervals
     _pauses: Intervals
@@ -130,7 +130,7 @@ class _SessionTime:
 
     @property
     def clock(self) -> Clock:
-        return self.clock
+        return self._clock
 
     @property
     def complete(self) -> Intervals: return self._history
@@ -158,8 +158,8 @@ class _SessionTime:
     @classmethod
     def new(cls, clock: Clock, precision: int) -> _SessionTime:
         return cls(
-            clock=clock,
-            precision=precision,
+            _clock=clock,
+            _precision=precision,
             _history=cls.Intervals.new(clock=clock),
             _actives=cls.Intervals.new(clock=clock),
             _pauses=cls.Intervals.new(clock=clock),
@@ -224,8 +224,8 @@ class _SessionTime:
             @property
             def duration(self) -> FormatableFloat:
                 if self.start.monotonic:
-                    return FormatableFloat((self.end.monotonic() or self.clock.monotonic()) - self.start.monotonic)
-                return 0.0
+                    return FormatableFloat((self.end.monotonic or self.clock.monotonic()) - self.start.monotonic)
+                return FormatableFloat(0.0)
 
             def stop(self, clock: Clock) -> Self:
                 self.end.now(clock=clock)
@@ -258,10 +258,6 @@ class _SessionTime:
             class Stamp:
                 monotonic: Optional[FormatableFloat] = field(default=None)
                 wall: Optional[FormatableFloat] = field(default=None)
-
-                def __post_init__(self) -> None:
-                    self.monotonic = FormatableFloat(self.monotonic)
-                    self.wall = FormatableFloat(self.wall)
 
                 def __call__(self) -> Optional[FormatableFloat]:
                     return self.monotonic
@@ -310,10 +306,11 @@ class _SessionTime:
                 return f'Monotonic: {self.monotonic}\nWall: {self.wall}\nReason: {self.reason}'
 
             @classmethod
-            def now(cls, clock: Clock, reason: Optional[str] = None) -> Self:
+            def now(cls, clock: Clock, label: Optional[str] = None, reason: Optional[str] = None) -> Self:
                 return cls(
-                    monotonic=clock.monotonic(),
-                    wall=clock.wall() if clock.wall else None,
+                    label=label or "",
+                    monotonic=FormatableFloat(clock.monotonic()),
+                    wall=FormatableFloat(clock.wall()) if clock.wall else None,
                     reason=reason
                 )
 
@@ -342,7 +339,7 @@ class _SessionTime:
         def active(self, clock: Optional[Clock] = None) -> _SessionTime:
             actives = self.th_instance.actives.Interval._add(
                     history=self.th_instance.actives.history,
-                    clock=clock or self.th_instance.clock.monotonic,
+                    clock=clock or self.th_instance.clock,
                     reason="activity"
                 )
             return self._append(actives)
@@ -350,7 +347,7 @@ class _SessionTime:
         def pause(self, reason: str, clock: Optional[Clock] = None) -> _SessionTime:
             pauses = self.th_instance.pauses.Interval._add(
                     history=self.th_instance.pauses.history,
-                    clock=clock or self.th_instance.clock.monotonic,
+                    clock=clock or self.th_instance.clock,
                     reason=reason
                 )
             return self._append(pauses)
@@ -358,22 +355,22 @@ class _SessionTime:
         def idle(self, clock: Optional[Clock] = None) -> _SessionTime:
             idles = self.th_instance.idles.Interval._add(
                     history=self.th_instance.idles.history,
-                    clock=clock or self.th_instance.clock.monotonic,
+                    clock=clock or self.th_instance.clock,
                     reason="inactivity"
                 )
             return self._append(idles)
 
-        def split(self, label: str = "", clock: Optional[Clock] = None) -> list[Self]:
-            splits = self.th_instance.splits.history.append(
-                self.th_instance.splits.Split._add(
+        def split(self, label: str = "", clock: Optional[Clock] = None) -> _SessionTime:
+            monotonic, wall = clock.now() if clock else self.th_instance.clock.now()
+            self.th_instance.splits.Split._add(
                     history=self.th_instance.splits.history,
                     label=label,
-                    monotonic=clock or self.th_instance.clock.monotonic,
-                    wall=self.th_instance.clock.wall,
+                    monotonic=monotonic, 
+                    wall=wall,
                     reason="manual"
                 )
-            )
-            return self._append(splits)
+            
+            return self.th_instance
 
         def _append(self, intervals: list[_SessionTime.Intervals.Interval]) -> _SessionTime:
             self.th_instance.complete.history.append(intervals[-1])
@@ -454,7 +451,7 @@ class Session:
         if self.status.is_ended:
             raise SessionException("Session already ended.", self.status.current)
 
-        self.time.current.end.now()
+        self.time.current.end.now(self.time.clock)
         self.status.add.ended
 
     def to_dict(self) -> dict:
